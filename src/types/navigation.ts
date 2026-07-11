@@ -2,6 +2,7 @@ export type Page =
   | 'dashboard'
   | 'manual'
   | 'api-relay'
+  | 'enterprise-pool'
   | 'overview'
   | 'codex'
   | 'claude'

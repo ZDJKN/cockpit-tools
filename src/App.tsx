@@ -51,7 +51,6 @@ import type { UpdateCheckResult, UpdateInfo } from './components/UpdateNotificat
 import type { RemoteUpdatePromptMode } from './types/remoteConfig';
 import type { Update as UpdaterUpdate } from '@tauri-apps/plugin-updater';
 import { parseUpdaterReleaseNotes, resolveUpdaterDownloadUrl } from './utils/updaterReleaseNotes';
-import { FloatingCardWindow } from './pages/FloatingCardWindow';
 import { initWakeupNotificationListener } from './utils/wakeupNotificationListener';
 import {
   createUpdaterCanceledError,
@@ -73,6 +72,12 @@ import { prepareCodexLocalAccessForRestart } from './services/codexLocalAccessSe
 
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
+);
+const EnterprisePoolPage = lazy(() =>
+  import('./pages/EnterprisePoolPage').then((module) => ({ default: module.EnterprisePoolPage })),
+);
+const FloatingCardWindow = lazy(() =>
+  import('./pages/FloatingCardWindow').then((module) => ({ default: module.FloatingCardWindow })),
 );
 const AccountsPage = lazy(() =>
   import('./pages/AccountsPage').then((module) => ({ default: module.AccountsPage })),
@@ -169,6 +174,7 @@ const ACTIVE_PAGE_STORAGE_KEY = 'agtools.active_page';
 const RENDERABLE_PAGE_VALUES: readonly Page[] = [
   'dashboard',
   'api-relay',
+  'enterprise-pool',
   'overview',
   'codex',
   'claude',
@@ -3884,6 +3890,7 @@ function MainApp() {
             />
           )}
           {page === 'api-relay' && <ApiKeyFunPage />}
+          {page === 'enterprise-pool' && <EnterprisePoolPage />}
           {page === 'overview' && <AccountsPage onNavigate={setPage} />}
           {page === 'codex' && <CodexAccountsPage />}
           {page === 'claude' && <ClaudeAccountsPage subPlatform="desktop" />}
@@ -3921,9 +3928,16 @@ function MainApp() {
 }
 
 function App() {
-  const windowLabel = getCurrentWindow().label;
+  // The Vite browser runtime is used to validate web-safe MVP surfaces. Avoid
+  // evaluating Tauri window APIs there; desktop builds still use the real label.
+  const isTauriRuntime = '__TAURI_INTERNALS__' in window;
+  const windowLabel = isTauriRuntime ? getCurrentWindow().label : 'main';
   if (windowLabel === 'floating-card' || windowLabel.startsWith('instance-floating-card-')) {
-    return <FloatingCardWindow />;
+    return (
+      <Suspense fallback={null}>
+        <FloatingCardWindow />
+      </Suspense>
+    );
   }
 
   return <MainApp />;

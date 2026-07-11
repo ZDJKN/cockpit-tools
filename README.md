@@ -22,6 +22,38 @@
 
 ---
 
+## 企业账号池 Mock MVP
+
+本 Fork 增加了独立的“企业账号池”页面，用于验证以下产品闭环：模拟钉钉身份登录、单账号单设备排他租约、无可用账号时 FIFO 排队、Hourly 或 Weekly 任一额度低于 10% 时提示用户确认换号，以及主动释放租约。
+
+### 本地启动
+
+先启动同级目录中的 `CodexPoolMVP`：
+
+```bash
+cd ../CodexPoolMVP
+docker compose up --build -d
+```
+
+确认服务健康后启动 cockpit-tools：
+
+```bash
+npm install
+npm run dev -- --host 127.0.0.1
+```
+
+客户端默认连接 `http://127.0.0.1:4174`。需要使用其他地址时设置：
+
+```bash
+VITE_ENTERPRISE_POOL_URL=http://127.0.0.1:4174 npm run dev -- --host 127.0.0.1
+```
+
+打开 `http://127.0.0.1:1420`，进入“企业账号池”即可执行完整模拟流程。
+
+> 当前里程碑只验证账号池调度与交互，不接入真实钉钉 OAuth，不保存或下发真实 ChatGPT/Codex 凭据，也不修改 `auth.json` 或 Windows Credential Manager。真实身份、凭据投影、安全审计和合规评估属于后续生产化阶段。
+
+---
+
 ## 赞助商
 
 <table>
