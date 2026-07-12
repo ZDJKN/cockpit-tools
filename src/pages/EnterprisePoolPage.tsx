@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Building2, CircleAlert, Clock3, LogIn, LogOut, RefreshCw, RotateCcw, Server, UserRound } from 'lucide-react';
+import { openUrl } from '@tauri-apps/plugin-opener';
 
 import {
   deriveEnterpriseDeviceState,
@@ -23,21 +24,27 @@ function formatTime(timestamp: number): string {
 
 export function EnterprisePoolPage() {
   const identity = useEnterprisePoolStore((state) => state.identity);
+  const deviceId = useEnterprisePoolStore((state) => state.deviceId);
+  const authMode = useEnterprisePoolStore((state) => state.authMode);
+  const authState = useEnterprisePoolStore((state) => state.authState);
+  const pendingLogin = useEnterprisePoolStore((state) => state.pendingLogin);
   const snapshot = useEnterprisePoolStore((state) => state.snapshot);
   const connected = useEnterprisePoolStore((state) => state.connected);
   const busy = useEnterprisePoolStore((state) => state.busy);
   const error = useEnterprisePoolStore((state) => state.error);
   const refresh = useEnterprisePoolStore((state) => state.refresh);
-  const login = useEnterprisePoolStore((state) => state.login);
+  const loginMock = useEnterprisePoolStore((state) => state.loginMock);
+  const startDingTalkLogin = useEnterprisePoolStore((state) => state.startDingTalkLogin);
+  const pollDingTalkLogin = useEnterprisePoolStore((state) => state.pollDingTalkLogin);
+  const cancelLogin = useEnterprisePoolStore((state) => state.cancelLogin);
   const requestLease = useEnterprisePoolStore((state) => state.requestLease);
   const releaseLease = useEnterprisePoolStore((state) => state.releaseLease);
   const updateQuota = useEnterprisePoolStore((state) => state.updateQuota);
   const confirmSwitch = useEnterprisePoolStore((state) => state.confirmSwitch);
   const cancelSwitch = useEnterprisePoolStore((state) => state.cancelSwitch);
-  const clearIdentity = useEnterprisePoolStore((state) => state.clearIdentity);
+  const logout = useEnterprisePoolStore((state) => state.logout);
 
   const [userId, setUserId] = useState(identity?.userId ?? 'ding-user-1');
-  const [deviceId, setDeviceId] = useState(identity?.deviceId ?? 'windows-1');
   const [displayName, setDisplayName] = useState(identity?.displayName ?? '测试用户 1');
   const [releaseConfirmationVisible, setReleaseConfirmationVisible] = useState(false);
 
@@ -46,6 +53,15 @@ export function EnterprisePoolPage() {
     const timer = window.setInterval(() => void refresh(), POLL_INTERVAL_MS);
     return () => window.clearInterval(timer);
   }, [refresh]);
+
+  useEffect(() => {
+    if (authState !== 'waiting_for_dingtalk' || !pendingLogin) return;
+    const timer = window.setTimeout(
+      () => void pollDingTalkLogin(),
+      pendingLogin.pollAfterMs,
+    );
+    return () => window.clearTimeout(timer);
+  }, [authState, pendingLogin, pollDingTalkLogin]);
 
   const deviceState = useMemo(
     () => deriveEnterpriseDeviceState(snapshot ?? {
@@ -57,7 +73,21 @@ export function EnterprisePoolPage() {
   const recentAudit = snapshot?.audit.slice(-12).reverse() ?? [];
 
   const handleLogin = async () => {
-    await login({ userId: userId.trim(), deviceId: deviceId.trim(), displayName: displayName.trim() });
+    await loginMock({ userId: userId.trim(), displayName: displayName.trim() });
+  };
+
+  const openLoginInBrowser = async (url: string) => {
+    try {
+      await openUrl(url);
+    } catch {
+      const opened = window.open(url, '_blank', 'noopener,noreferrer');
+      if (!opened) throw new Error('无法自动打开浏览器，请复制登录链接');
+    }
+  };
+
+  const copyLoginUrl = async () => {
+    if (!pendingLogin?.loginUrl) return;
+    await navigator.clipboard.writeText(pendingLogin.loginUrl);
   };
 
   const handleRelease = async () => {
@@ -72,7 +102,7 @@ export function EnterprisePoolPage() {
           <span className="enterprise-pool-title-icon"><Building2 size={22} /></span>
           <div>
             <h1>企业账号池</h1>
-            <p>模拟钉钉身份 · 排他租约 · 额度确认切换</p>
+            <p>{authMode === 'dingtalk' ? '钉钉企业身份' : 'Mock 企业身份'} · 排他租约 · 额度确认切换</p>
           </div>
         </div>
         <div className={`enterprise-pool-connection ${connected ? 'online' : 'offline'}`}>
@@ -89,19 +119,37 @@ export function EnterprisePoolPage() {
           {identity ? (
             <div className="enterprise-pool-identity">
               <strong>{identity.displayName}</strong>
-              <span>{identity.userId}</span>
-              <span>{identity.deviceId}</span>
-              <button className="btn btn-secondary" type="button" onClick={() => void clearIdentity()} disabled={busy}>
-                <LogOut size={15} />清除本机身份
+              <span>{identity.provider === 'dingtalk' ? '钉钉' : 'Mock'} · {identity.subject}</span>
+              <span>设备：{identity.deviceId}</span>
+              <button className="btn btn-secondary" type="button" onClick={() => void logout()} disabled={busy}>
+                <LogOut size={15} />退出企业身份
               </button>
+            </div>
+          ) : authMode === 'dingtalk' ? (
+            <div className="enterprise-pool-login-form enterprise-pool-dingtalk-login">
+              <div className="enterprise-pool-device-id"><span>当前 Windows 设备</span><code>{deviceId}</code></div>
+              {authState === 'waiting_for_dingtalk' ? (
+                <div className="enterprise-pool-login-waiting">
+                  <strong>请在浏览器中完成钉钉登录</strong>
+                  <span>完成后本页面会自动继续。</span>
+                  <div>
+                    <button className="btn btn-secondary" type="button" onClick={() => void copyLoginUrl()}>复制登录链接</button>
+                    <button className="btn btn-secondary" type="button" onClick={cancelLogin}>取消</button>
+                  </div>
+                </div>
+              ) : (
+                <button className="btn btn-primary" type="button" onClick={() => void startDingTalkLogin(openLoginInBrowser)} disabled={busy || !connected}>
+                  <LogIn size={15} />使用钉钉登录
+                </button>
+              )}
             </div>
           ) : (
             <div className="enterprise-pool-login-form">
               <label>钉钉用户 ID<input value={userId} onChange={(event) => setUserId(event.target.value)} autoComplete="off" /></label>
-              <label>Windows 设备 ID<input value={deviceId} onChange={(event) => setDeviceId(event.target.value)} autoComplete="off" /></label>
               <label>显示名称<input value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="off" /></label>
-              <button className="btn btn-primary" type="button" onClick={() => void handleLogin()} disabled={busy || !userId.trim() || !deviceId.trim() || !displayName.trim()}>
-                <LogIn size={15} />模拟钉钉登录
+              <div className="enterprise-pool-device-id"><span>自动设备 ID</span><code>{deviceId}</code></div>
+              <button className="btn btn-primary" type="button" onClick={() => void handleLogin()} disabled={busy || !userId.trim() || !displayName.trim()}>
+                <LogIn size={15} />模拟企业登录
               </button>
             </div>
           )}

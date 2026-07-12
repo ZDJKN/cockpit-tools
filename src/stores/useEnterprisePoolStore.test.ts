@@ -249,4 +249,20 @@ describe('enterprise pool store actions', () => {
       error: 'offline',
     });
   });
+
+  it('does not erase a terminal auth error during a successful pool refresh', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/api/health')) return jsonResponse({ ok: true, mode: 'mock' });
+      return jsonResponse(emptySnapshot);
+    }));
+    useEnterprisePoolStore.setState({
+      authState: 'auth_error',
+      error: '登录失败，请重试',
+    });
+
+    await useEnterprisePoolStore.getState().refresh();
+
+    expect(useEnterprisePoolStore.getState().error).toBe('登录失败，请重试');
+  });
 });

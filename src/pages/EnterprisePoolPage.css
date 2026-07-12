@@ -20,10 +20,16 @@
 .enterprise-pool-card-heading { justify-content:flex-start; margin-bottom:12px; color:var(--text-secondary); }
 .enterprise-pool-card-heading h2 { color:var(--text-primary); font-size:14px; }
 .enterprise-pool-card-heading > span { margin-left:auto; font-size:12px; }
-.enterprise-pool-login-form { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.enterprise-pool-login-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
 .enterprise-pool-login-form label { display:flex; flex-direction:column; gap:5px; color:var(--text-secondary); font-size:11px; }
 .enterprise-pool-login-form input { width:100%; min-height:34px; padding:0 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); color:var(--text-primary); }
 .enterprise-pool-login-form .btn { grid-column:1/-1; }
+.enterprise-pool-device-id { grid-column:1/-1; display:flex; align-items:center; justify-content:space-between; gap:10px; padding:9px 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); color:var(--text-secondary); font-size:11px; }
+.enterprise-pool-device-id code { color:var(--text-primary); overflow-wrap:anywhere; text-align:right; }
+.enterprise-pool-dingtalk-login { grid-template-columns:1fr; }
+.enterprise-pool-login-waiting { display:grid; gap:7px; padding:12px; border:1px solid color-mix(in srgb,var(--primary) 28%,var(--border)); border-radius:10px; background:color-mix(in srgb,var(--primary) 8%,var(--bg-secondary)); }
+.enterprise-pool-login-waiting span { color:var(--text-secondary); font-size:12px; }
+.enterprise-pool-login-waiting > div { display:flex; flex-wrap:wrap; gap:8px; }
 .enterprise-pool-identity { display:grid; gap:6px; }
 .enterprise-pool-identity > span { color:var(--text-secondary); font-size:12px; }
 .enterprise-pool-device-state { padding:14px; border-radius:10px; background:var(--bg-secondary); }

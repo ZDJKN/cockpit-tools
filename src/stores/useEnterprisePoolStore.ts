@@ -135,7 +135,12 @@ export const useEnterprisePoolStore = create<EnterprisePoolStore>((set, get) => 
   refresh: async () => {
     try {
       const [health, snapshot] = await Promise.all([client.getHealth(), client.getPool()]);
-      set({ connected: health.ok, authMode: health.mode, snapshot, error: null });
+      set((state) => ({
+        connected: health.ok,
+        authMode: health.mode,
+        snapshot,
+        error: state.authState === 'auth_error' ? state.error : null,
+      }));
     } catch (error) {
       set({ connected: false, error: formatPoolError(error) });
     }
