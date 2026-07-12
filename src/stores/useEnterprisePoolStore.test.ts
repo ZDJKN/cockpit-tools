@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { deriveEnterpriseDeviceState, useEnterprisePoolStore } from './useEnterprisePoolStore';
+import {
+  deriveEnterpriseDeviceState,
+  getOrCreateEnterpriseDeviceId,
+  useEnterprisePoolStore,
+} from './useEnterprisePoolStore';
 import type { EnterprisePoolSnapshot } from '../types/enterprisePool';
 
 const emptySnapshot: EnterprisePoolSnapshot = {
@@ -27,6 +31,25 @@ afterEach(() => {
     connected: false,
     busy: false,
     error: null,
+    authMode: null,
+    authState: 'signed_out',
+    pendingLogin: null,
+  });
+});
+
+describe('enterprise installation identity', () => {
+  it('generates and reuses one stable installation device ID', () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    };
+
+    const first = getOrCreateEnterpriseDeviceId(storage);
+    const second = getOrCreateEnterpriseDeviceId(storage);
+
+    expect(first).toMatch(/^windows-[0-9a-f-]+$/);
+    expect(second).toBe(first);
   });
 });
 
@@ -103,21 +126,103 @@ describe('deriveEnterpriseDeviceState', () => {
 });
 
 describe('enterprise pool store actions', () => {
+  it('completes Mock desktop login without persisting the user or session token', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/desktop/mock/login')) {
+        return jsonResponse({
+          status: 'completed',
+          sessionToken: 'memory-only-token',
+          identity: { provider: 'mock', subject: 'mock-1', displayName: '用户 1' },
+          deviceId: 'windows-1',
+        });
+      }
+      if (url.endsWith('/api/health')) {
+        return jsonResponse({ ok: true, ready: true, mode: 'mock', database: 'postgres' });
+      }
+      if (url.endsWith('/api/pool')) return jsonResponse(emptySnapshot);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    useEnterprisePoolStore.setState({ deviceId: 'windows-1' });
+
+    await useEnterprisePoolStore.getState().loginMock({ userId: 'mock-1', displayName: '用户 1' });
+
+    expect(useEnterprisePoolStore.getState()).toMatchObject({
+      authState: 'signed_in',
+      identity: {
+        provider: 'mock',
+        subject: 'mock-1',
+        displayName: '用户 1',
+        deviceId: 'windows-1',
+      },
+    });
+  });
+
+  it('moves DingTalk login through browser waiting and completed polling', async () => {
+    const fetchMock = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/desktop/start')) {
+        return jsonResponse({
+          transactionId: 'transaction-1',
+          verifier: 'verifier-1',
+          loginUrl: 'https://login.example.com',
+          expiresAt: Date.now() + 60_000,
+          pollAfterMs: 1500,
+        });
+      }
+      if (url.endsWith('/api/auth/desktop/poll')) {
+        return jsonResponse({
+          status: 'completed',
+          sessionToken: 'desktop-session',
+          identity: { provider: 'dingtalk', subject: 'union-1', displayName: '钉钉员工' },
+          deviceId: 'windows-1',
+        });
+      }
+      if (url.endsWith('/api/health')) {
+        return jsonResponse({ ok: true, ready: true, mode: 'dingtalk', database: 'postgres' });
+      }
+      if (url.endsWith('/api/pool')) return jsonResponse(emptySnapshot);
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const openLogin = vi.fn(async () => undefined);
+    useEnterprisePoolStore.setState({ deviceId: 'windows-1', authMode: 'dingtalk' });
+
+    await useEnterprisePoolStore.getState().startDingTalkLogin(openLogin);
+    expect(openLogin).toHaveBeenCalledWith('https://login.example.com');
+    expect(useEnterprisePoolStore.getState().authState).toBe('waiting_for_dingtalk');
+
+    await useEnterprisePoolStore.getState().pollDingTalkLogin();
+    expect(useEnterprisePoolStore.getState()).toMatchObject({
+      authState: 'signed_in',
+      pendingLogin: null,
+      identity: { provider: 'dingtalk', subject: 'union-1', deviceId: 'windows-1' },
+    });
+  });
+
   it('releases a lease or queue entry before clearing the local identity', async () => {
     const fetchMock = vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith('/api/leases/windows-1/release')) return jsonResponse({ ok: true });
+      if (url.endsWith('/api/auth/logout')) return jsonResponse({ ok: true });
       if (url.endsWith('/api/health')) return jsonResponse({ ok: true, mode: 'mock' });
       if (url.endsWith('/api/pool')) return jsonResponse(emptySnapshot);
       return jsonResponse({ error: 'NOT_FOUND' }, 404);
     });
     vi.stubGlobal('fetch', fetchMock);
     useEnterprisePoolStore.setState({
-      identity: { userId: 'ding-1', deviceId: 'windows-1', displayName: '用户 1' },
+      identity: {
+        provider: 'mock',
+        subject: 'ding-1',
+        userId: 'ding-1',
+        deviceId: 'windows-1',
+        displayName: '用户 1',
+      },
       snapshot: emptySnapshot,
     });
 
-    await useEnterprisePoolStore.getState().clearIdentity();
+    await useEnterprisePoolStore.getState().logout();
 
     expect(fetchMock).toHaveBeenCalledWith(
       'http://127.0.0.1:4174/api/leases/windows-1/release',
