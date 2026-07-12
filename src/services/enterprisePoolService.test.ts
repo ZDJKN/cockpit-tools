@@ -36,7 +36,72 @@ describe('enterprisePoolService', () => {
     const result = await createEnterprisePoolClient('http://pool.test/').getPool();
 
     expect(result).toEqual(snapshot);
-    expect(fetchMock).toHaveBeenCalledWith('http://pool.test/api/pool', expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(
+      'http://pool.test/api/pool',
+      expect.objectContaining({ credentials: 'include' }),
+    );
+  });
+
+  it('maps desktop auth operations and keeps the Bearer session in the client', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith('/api/auth/mode')) return jsonResponse({ mode: 'mock' });
+      if (url.endsWith('/api/auth/desktop/mock/login')) {
+        return jsonResponse({
+          status: 'completed',
+          sessionToken: 'desktop-session',
+          identity: { provider: 'mock', subject: 'mock-1', displayName: '用户 1' },
+          deviceId: 'windows-1',
+        });
+      }
+      if (url.endsWith('/api/auth/session')) {
+        return jsonResponse({
+          identity: { provider: 'mock', subject: 'mock-1', displayName: '用户 1' },
+        });
+      }
+      return jsonResponse({ ok: true });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createEnterprisePoolClient('http://pool.test');
+
+    await client.getAuthMode();
+    const login = await client.desktopMockLogin({
+      userId: 'mock-1',
+      displayName: '用户 1',
+      deviceId: 'windows-1',
+    });
+    client.setSessionToken(login.sessionToken);
+    await client.getSession();
+    await client.logout();
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'http://pool.test/api/auth/mode',
+      'http://pool.test/api/auth/desktop/mock/login',
+      'http://pool.test/api/auth/session',
+      'http://pool.test/api/auth/logout',
+    ]);
+    expect(fetchMock.mock.calls[2]?.[1]).toEqual(
+      expect.objectContaining({
+        credentials: 'include',
+        headers: expect.objectContaining({ authorization: 'Bearer desktop-session' }),
+      }),
+    );
+  });
+
+  it('maps DingTalk desktop start and poll routes', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(async () => jsonResponse({ status: 'pending', pollAfterMs: 1500 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const client = createEnterprisePoolClient('http://pool.test');
+
+    await client.startDesktopLogin('windows-1');
+    await client.pollDesktopLogin('transaction-1', 'verifier-1');
+
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      'http://pool.test/api/auth/desktop/start',
+      'http://pool.test/api/auth/desktop/poll',
+    ]);
   });
 
   it('maps login, lease, quota, switch and release operations to API routes', async () => {
@@ -86,3 +151,10 @@ describe('enterprisePoolService', () => {
     } satisfies Partial<EnterprisePoolApiError>);
   });
 });
+
+function jsonResponse(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'content-type': 'application/json' },
+  });
+}

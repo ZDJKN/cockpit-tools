@@ -54,11 +54,46 @@ export interface EnterprisePoolLoginInput {
   displayName: string;
 }
 
+export type EnterpriseAuthMode = 'mock' | 'dingtalk';
+
+export interface EnterpriseIdentity {
+  provider: EnterpriseAuthMode;
+  subject: string;
+  displayName: string;
+}
+
+export interface EnterpriseDesktopLoginInput {
+  userId: string;
+  displayName: string;
+  deviceId: string;
+}
+
+export interface EnterpriseDesktopLoginCompleted {
+  status: 'completed';
+  sessionToken: string;
+  identity: EnterpriseIdentity;
+  deviceId: string;
+}
+
+export interface EnterpriseDesktopLoginStart {
+  transactionId: string;
+  verifier: string;
+  loginUrl: string;
+  expiresAt: number;
+  pollAfterMs: number;
+}
+
+export type EnterpriseDesktopLoginPoll =
+  | { status: 'pending'; pollAfterMs: number }
+  | EnterpriseDesktopLoginCompleted;
+
 export type EnterpriseLeaseResult =
   | { status: 'leased'; leaseId: string; accountId: string; deviceId: string }
   | { status: 'queued'; deviceId: string; position: number };
 
 export interface EnterprisePoolHealth {
   ok: boolean;
-  mode: 'mock';
+  ready?: boolean;
+  mode: EnterpriseAuthMode;
+  database?: 'memory' | 'sqlite' | 'postgres';
 }

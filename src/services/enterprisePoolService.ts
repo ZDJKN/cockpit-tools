@@ -1,5 +1,11 @@
 import type {
   EnterpriseLeaseResult,
+  EnterpriseAuthMode,
+  EnterpriseDesktopLoginCompleted,
+  EnterpriseDesktopLoginInput,
+  EnterpriseDesktopLoginPoll,
+  EnterpriseDesktopLoginStart,
+  EnterpriseIdentity,
   EnterprisePoolHealth,
   EnterprisePoolLoginInput,
   EnterprisePoolSnapshot,
@@ -23,6 +29,13 @@ export class EnterprisePoolApiError extends Error {
 }
 
 export interface EnterprisePoolClient {
+  getAuthMode(): Promise<{ mode: EnterpriseAuthMode }>;
+  desktopMockLogin(input: EnterpriseDesktopLoginInput): Promise<EnterpriseDesktopLoginCompleted>;
+  startDesktopLogin(deviceId: string): Promise<EnterpriseDesktopLoginStart>;
+  pollDesktopLogin(transactionId: string, verifier: string): Promise<EnterpriseDesktopLoginPoll>;
+  getSession(): Promise<{ identity: EnterpriseIdentity }>;
+  logout(): Promise<{ ok: true }>;
+  setSessionToken(token: string | null): void;
   getHealth(): Promise<EnterprisePoolHealth>;
   getPool(): Promise<EnterprisePoolSnapshot>;
   mockLogin(input: EnterprisePoolLoginInput): Promise<EnterprisePoolLoginInput & { mode: 'mock' }>;
@@ -37,12 +50,15 @@ export function createEnterprisePoolClient(baseUrl?: string | null): EnterpriseP
   const resolvedBaseUrl = normalizeEnterprisePoolBaseUrl(
     baseUrl ?? import.meta.env.VITE_ENTERPRISE_POOL_URL,
   );
+  let sessionToken: string | null = null;
 
   async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(`${resolvedBaseUrl}${path}`, {
       ...init,
+      credentials: 'include',
       headers: {
         accept: 'application/json',
+        ...(sessionToken ? { authorization: `Bearer ${sessionToken}` } : {}),
         ...(init.body ? { 'content-type': 'application/json' } : {}),
         ...init.headers,
       },
@@ -65,6 +81,22 @@ export function createEnterprisePoolClient(baseUrl?: string | null): EnterpriseP
     });
 
   return {
+    getAuthMode: () => request<{ mode: EnterpriseAuthMode }>('/api/auth/mode'),
+    desktopMockLogin: (input) =>
+      post<EnterpriseDesktopLoginCompleted>('/api/auth/desktop/mock/login', input),
+    startDesktopLogin: (deviceId) =>
+      post<EnterpriseDesktopLoginStart>('/api/auth/desktop/start', { deviceId }),
+    pollDesktopLogin: (transactionId, verifier) =>
+      post<EnterpriseDesktopLoginPoll>('/api/auth/desktop/poll', { transactionId, verifier }),
+    getSession: () => request<{ identity: EnterpriseIdentity }>('/api/auth/session'),
+    logout: async () => {
+      const result = await post<{ ok: true }>('/api/auth/logout');
+      sessionToken = null;
+      return result;
+    },
+    setSessionToken: (token) => {
+      sessionToken = token;
+    },
     getHealth: () => request<EnterprisePoolHealth>('/api/health'),
     getPool: () => request<EnterprisePoolSnapshot>('/api/pool'),
     mockLogin: (input) =>
