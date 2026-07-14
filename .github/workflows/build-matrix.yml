@@ -46,6 +46,8 @@ jobs:
     name: Build (${{ matrix.label }})
     needs: preflight
     runs-on: ${{ matrix.platform }}
+    env:
+      VITE_ENTERPRISE_POOL_URL: ${{ vars.VITE_ENTERPRISE_POOL_URL }}
     permissions:
       contents: read
     strategy:
