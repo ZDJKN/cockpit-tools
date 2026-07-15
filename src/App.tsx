@@ -69,6 +69,7 @@ import {
 } from './utils/externalProviderImport';
 import { runAutoBackupCycle } from './services/scheduledBackupService';
 import { prepareCodexLocalAccessForRestart } from './services/codexLocalAccessService';
+import { applicationUpdatePolicy } from './config/applicationUpdatePolicy';
 
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage').then((module) => ({ default: module.DashboardPage })),
@@ -807,7 +808,9 @@ function MainApp() {
   const [topRightAdVisible, setTopRightAdVisible] = useState(true);
   const topRightAdVisibleRef = useRef<boolean | null>(null);
   const visibleTopCenterPromoAds = useMemo(
-    () => topRightAdState.ads.filter((ad) => isTopPromoAdVisibleOnPage(ad, page)),
+    () => applicationUpdatePolicy.allowUpstreamAnnouncements
+      ? topRightAdState.ads.filter((ad) => isTopPromoAdVisibleOnPage(ad, page))
+      : [],
     [page, topRightAdState.ads],
   );
   const trayRefreshInFlightRef = useRef(false);
@@ -837,30 +840,43 @@ function MainApp() {
 
       showModal({
         title: t('common.shared.externalImport.versionUnsupportedTitle', '应用版本过低'),
-        description: t(
-          'common.shared.externalImport.versionUnsupportedDesc',
-          '暂不支持此方式，请下载最新版。',
-        ),
+        description: applicationUpdatePolicy.allowManualChecks
+          ? t(
+              'common.shared.externalImport.versionUnsupportedDesc',
+              '暂不支持此方式，请下载最新版。',
+            )
+          : t(
+              'common.shared.externalImport.enterpriseVersionUnsupportedDesc',
+              '当前企业版不支持此导入方式，请联系管理员。',
+            ),
         width: 'sm',
-        actions: [
-          {
-            id: 'check-update',
-            label: t('common.shared.externalImport.checkUpdate', '检查更新'),
-            variant: 'primary',
-            onClick: () => {
-              window.dispatchEvent(
-                new CustomEvent('update-check-requested', {
-                  detail: { source: 'manual' satisfies UpdateCheckSource },
-                }),
-              );
-            },
-          },
-          {
-            id: 'close',
-            label: t('common.close', '关闭'),
-            variant: 'secondary',
-          },
-        ],
+        actions: applicationUpdatePolicy.allowManualChecks
+          ? [
+              {
+                id: 'check-update',
+                label: t('common.shared.externalImport.checkUpdate', '检查更新'),
+                variant: 'primary',
+                onClick: () => {
+                  window.dispatchEvent(
+                    new CustomEvent('update-check-requested', {
+                      detail: { source: 'manual' satisfies UpdateCheckSource },
+                    }),
+                  );
+                },
+              },
+              {
+                id: 'close',
+                label: t('common.close', '关闭'),
+                variant: 'secondary',
+              },
+            ]
+          : [
+              {
+                id: 'close',
+                label: t('common.close', '关闭'),
+                variant: 'primary',
+              },
+            ],
       });
       console.warn('[ExternalImport][App] 当前版本不支持外部导入方式，已终止导入', {
         currentVersion: currentVersion || null,
@@ -996,10 +1012,19 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowUpstreamAnnouncements) {
+      return;
+    }
+
     void fetchTopRightAdState();
   }, [fetchTopRightAdState]);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowUpstreamAnnouncements) {
+      setTopRightAdVisible(false);
+      return;
+    }
+
     let disposed = false;
 
     const loadTopRightAdVisible = async () => {
@@ -1072,7 +1097,9 @@ function MainApp() {
 
   useEffect(() => {
     const intervalId = window.setInterval(() => {
-      void fetchTopRightAdState();
+      if (applicationUpdatePolicy.allowUpstreamAnnouncements) {
+        void fetchTopRightAdState();
+      }
       void fetchSponsorModuleState();
     }, TOP_RIGHT_AD_REFRESH_INTERVAL_MS);
     return () => {
@@ -1082,7 +1109,9 @@ function MainApp() {
 
   useEffect(() => {
     const handleLanguageChanged = () => {
-      void fetchTopRightAdState();
+      if (applicationUpdatePolicy.allowUpstreamAnnouncements) {
+        void fetchTopRightAdState();
+      }
       void fetchSponsorModuleState();
     };
     window.addEventListener('general-language-updated', handleLanguageChanged);
@@ -1240,6 +1269,11 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowBackgroundChecks) {
+      setUpdateRuntimeInfoLoaded(true);
+      return;
+    }
+
     let cancelled = false;
 
     invoke<UpdateRuntimeInfo>('get_update_runtime_info')
@@ -1268,6 +1302,11 @@ function MainApp() {
   }, [writeUpdateLog]);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.showUpdatePrompts) {
+      setUpdateRemindersEnabled(false);
+      return;
+    }
+
     let cancelled = false;
     invoke<{
       auto_check?: boolean;
@@ -1290,6 +1329,10 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.showUpdatePrompts) {
+      return;
+    }
+
     const handleUpdateReminderChanged = (event: Event) => {
       const detail = (event as CustomEvent<{ enabled?: boolean }>).detail;
       if (typeof detail?.enabled === 'boolean') {
@@ -2086,6 +2129,10 @@ function MainApp() {
 
   // Check for updates on startup
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowBackgroundChecks) {
+      return;
+    }
+
     if (!updateRuntimeInfoLoaded) {
       return;
     }
@@ -2530,6 +2577,10 @@ function MainApp() {
 
   // Version jump detection (post-update changelog)
   useEffect(() => {
+    if (!applicationUpdatePolicy.showPostUpdateNotices) {
+      return;
+    }
+
     const detectVersionJump = async () => {
       const versionJumpStartedAt = performance.now();
       try {
@@ -2794,6 +2845,10 @@ function MainApp() {
   }, []);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowManualChecks) {
+      return;
+    }
+
     const handleUpdateRequest = (event: Event) => {
       const detail = (event as CustomEvent<{ source?: UpdateCheckSource }>).detail;
       const source: UpdateCheckSource = detail?.source === 'manual' ? 'manual' : 'auto';
@@ -3531,8 +3586,11 @@ function MainApp() {
   const appPathMissingBusy = appPathSetting || appPathDetecting || appPathCodexLaunchSetting;
   const claudeMultiInstanceNeedsExe =
     appPathMissing?.app === 'claude' && appPathMissing.retry?.kind === 'instance';
-  const shouldRenderUpdateNotification = showUpdateNotification
-    || (updateRemindersEnabled && updateAction.state !== 'hidden');
+  const shouldRenderUpdateNotification = applicationUpdatePolicy.showUpdatePrompts
+    && (
+      showUpdateNotification
+      || (updateRemindersEnabled && updateAction.state !== 'hidden')
+    );
 
   return (
     <div
@@ -3563,7 +3621,7 @@ function MainApp() {
         </div>
       )}
       {/* 版本跳跃通知（更新后首次启动） */}
-      {versionJumpInfo && (
+      {applicationUpdatePolicy.showPostUpdateNotices && versionJumpInfo && (
         <Suspense fallback={null}>
           {showVersionJumpNotification && (
             <VersionJumpNotification
@@ -3838,10 +3896,10 @@ function MainApp() {
         easterEggClickCount={easterEggClickCount}
         onEasterEggTriggerClick={handleBreakoutEntryTriggerClick}
         hasBreakoutSession={hasBreakoutSession}
-        updateActionState={updateAction.state}
+        updateActionState={applicationUpdatePolicy.showUpdatePrompts ? updateAction.state : 'hidden'}
         updateProgress={updateAction.progress}
         onUpdateActionClick={handleQuickUpdateActionClick}
-        updateRemindersEnabled={updateRemindersEnabled}
+        updateRemindersEnabled={applicationUpdatePolicy.showUpdatePrompts && updateRemindersEnabled}
         sponsorEntryVisible={sponsorEntryVisible}
         onOpenLogViewer={() => setShowLogViewer(true)}
       />
@@ -3875,7 +3933,9 @@ function MainApp() {
       </Suspense>
 
       <div className="main-wrapper">
-        {topRightAdVisible && visibleTopCenterPromoAds.length > 0 ? (
+        {applicationUpdatePolicy.allowUpstreamAnnouncements
+        && topRightAdVisible
+        && visibleTopCenterPromoAds.length > 0 ? (
           <div className="app-global-promo-layer" aria-hidden={false}>
             <TopCenterPromoBanner ads={visibleTopCenterPromoAds} reserveWhenEmpty={false} />
           </div>

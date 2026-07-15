@@ -257,17 +257,15 @@ pub fn run() {
                 }
             });
 
-            // 初始化 Updater 插件
+            // 初始化桌面端进程和自启插件。企业版不注册 Updater。
             #[cfg(desktop)]
             {
-                app.handle()
-                    .plugin(tauri_plugin_updater::Builder::new().build())?;
                 app.handle().plugin(tauri_plugin_process::init())?;
                 app.handle().plugin(tauri_plugin_autostart::init(
                     tauri_plugin_autostart::MacosLauncher::LaunchAgent,
                     None::<Vec<&'static str>>,
                 ))?;
-                info!("[Updater] Tauri Updater + Process 插件已初始化");
+                info!("[Desktop] Process + Autostart 插件已初始化，应用自动更新已禁用");
             }
 
             // 启动时同步设置合并（移至后台线程，不阻塞窗口显示）

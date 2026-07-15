@@ -28,6 +28,7 @@ import {
   buildAccountTierFilterOptions,
 } from '../utils/accountFilters';
 import { resolveUpdaterDownloadUrl } from '../utils/updaterReleaseNotes';
+import { applicationUpdatePolicy } from '../config/applicationUpdatePolicy';
 import { getSubscriptionTier } from '../utils/account';
 import type { Account } from '../types/account';
 import type { CodexAccount } from '../types/codex';
@@ -685,6 +686,10 @@ export function SettingsPage() {
 
   useEffect(() => {
     getVersion().then(ver => setAppVersion(`v${ver}`));
+    if (!applicationUpdatePolicy.allowManualChecks) {
+      return;
+    }
+
     // Load auto_install setting first to avoid overwriting existing value on initial render
     invoke<{
       auto_check: boolean;
@@ -707,6 +712,10 @@ export function SettingsPage() {
   }, []);
 
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowManualChecks) {
+      return;
+    }
+
     const handleStarted = (event: Event) => {
       const detail = (event as CustomEvent<{ source?: UpdateCheckSource }>).detail;
       if (detail?.source !== 'manual') {
@@ -1218,6 +1227,10 @@ export function SettingsPage() {
 
   // Save auto_install setting when changed
   useEffect(() => {
+    if (!applicationUpdatePolicy.allowBackgroundChecks) {
+      return;
+    }
+
     if (!autoInstallLoaded && !autoInstallTouchedRef.current) {
       return;
     }
@@ -1246,6 +1259,10 @@ export function SettingsPage() {
 
   // Save update reminder setting when changed
   useEffect(() => {
+    if (!applicationUpdatePolicy.showUpdatePrompts) {
+      return;
+    }
+
     if (!updateRemindersLoaded && !updateRemindersTouchedRef.current) {
       return;
     }
@@ -3007,45 +3024,49 @@ export function SettingsPage() {
                 </div>
               </div>
 
-              <div className="settings-row">
-                <div className="row-label">
-                  <div className="row-title">{t('settings.general.autoUpdate')}</div>
-                  <div className="row-desc">{t('settings.general.autoUpdateDesc')}</div>
-                </div>
-                <div className="row-control">
-                  <select
-                    className="settings-select"
-                    value={autoInstall ? 'true' : 'false'}
-                    onChange={(e) => {
-                      autoInstallTouchedRef.current = true;
-                      setAutoInstall(e.target.value === 'true');
-                    }}
-                  >
-                    <option value="false">{t('settings.general.autoUpdateOff')}</option>
-                    <option value="true">{t('settings.general.autoUpdateOn')}</option>
-                  </select>
-                </div>
-              </div>
+              {applicationUpdatePolicy.allowBackgroundChecks && (
+                <>
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('settings.general.autoUpdate')}</div>
+                      <div className="row-desc">{t('settings.general.autoUpdateDesc')}</div>
+                    </div>
+                    <div className="row-control">
+                      <select
+                        className="settings-select"
+                        value={autoInstall ? 'true' : 'false'}
+                        onChange={(e) => {
+                          autoInstallTouchedRef.current = true;
+                          setAutoInstall(e.target.value === 'true');
+                        }}
+                      >
+                        <option value="false">{t('settings.general.autoUpdateOff')}</option>
+                        <option value="true">{t('settings.general.autoUpdateOn')}</option>
+                      </select>
+                    </div>
+                  </div>
 
-              <div className="settings-row">
-                <div className="row-label">
-                  <div className="row-title">{t('settings.general.updateReminder')}</div>
-                  <div className="row-desc">{t('settings.general.updateReminderDesc')}</div>
-                </div>
-                <div className="row-control">
-                  <select
-                    className="settings-select"
-                    value={updateRemindersEnabled ? 'true' : 'false'}
-                    onChange={(e) => {
-                      updateRemindersTouchedRef.current = true;
-                      setUpdateRemindersEnabled(e.target.value === 'true');
-                    }}
-                  >
-                    <option value="true">{t('settings.general.updateReminderOn')}</option>
-                    <option value="false">{t('settings.general.updateReminderOff')}</option>
-                  </select>
-                </div>
-              </div>
+                  <div className="settings-row">
+                    <div className="row-label">
+                      <div className="row-title">{t('settings.general.updateReminder')}</div>
+                      <div className="row-desc">{t('settings.general.updateReminderDesc')}</div>
+                    </div>
+                    <div className="row-control">
+                      <select
+                        className="settings-select"
+                        value={updateRemindersEnabled ? 'true' : 'false'}
+                        onChange={(e) => {
+                          updateRemindersTouchedRef.current = true;
+                          setUpdateRemindersEnabled(e.target.value === 'true');
+                        }}
+                      >
+                        <option value="true">{t('settings.general.updateReminderOn')}</option>
+                        <option value="false">{t('settings.general.updateReminderOff')}</option>
+                      </select>
+                    </div>
+                  </div>
+                </>
+              )}
 
               {isMacOS && (
                 <>
@@ -6795,40 +6816,42 @@ export function SettingsPage() {
                 <h2>{t('settings.about.appName')}</h2>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div className="version-tag">{appVersion}</div>
-                  <button 
-                    className="btn btn-sm btn-ghost"
-                    onClick={handleCheckUpdate}
-                    disabled={updateChecking}
-                    style={{ 
-                      fontSize: '12px', 
-                      padding: '4px 10px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px'
-                    }}
-                  >
+                  {applicationUpdatePolicy.allowManualChecks && (
                     <>
-                      <RefreshCw size={14} className={updateChecking ? 'spin' : undefined} />
-                      {updateChecking ? t('settings.about.checking') : t('settings.about.checkUpdate')}
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={handleCheckUpdate}
+                        disabled={updateChecking}
+                        style={{
+                          fontSize: '12px',
+                          padding: '4px 10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
+                      >
+                        <RefreshCw size={14} className={updateChecking ? 'spin' : undefined} />
+                        {updateChecking ? t('settings.about.checking') : t('settings.about.checkUpdate')}
+                      </button>
+                      <button
+                        className="btn btn-sm btn-ghost"
+                        onClick={handleOpenReleaseHistory}
+                        disabled={releaseHistoryLoading}
+                        style={{
+                          fontSize: '12px',
+                          padding: '4px 10px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <FileText size={14} />
+                        {t('settings.about.viewReleaseHistory', '更新记录')}
+                      </button>
                     </>
-                  </button>
-                  <button
-                    className="btn btn-sm btn-ghost"
-                    onClick={handleOpenReleaseHistory}
-                    disabled={releaseHistoryLoading}
-                    style={{
-                      fontSize: '12px',
-                      padding: '4px 10px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '4px',
-                    }}
-                  >
-                    <FileText size={14} />
-                    {t('settings.about.viewReleaseHistory', '更新记录')}
-                  </button>
+                  )}
                 </div>
-                {updateCheckMessage && (
+                {applicationUpdatePolicy.showUpdatePrompts && updateCheckMessage && (
                   <div
                     className={`action-message${updateCheckMessage.tone ? ` ${updateCheckMessage.tone}` : ''}`}
                     style={{ marginTop: '10px', marginBottom: 0 }}
@@ -6872,7 +6895,7 @@ export function SettingsPage() {
         )}
         </div>
       </div>
-      {releaseHistoryOpen && (
+      {applicationUpdatePolicy.allowManualChecks && releaseHistoryOpen && (
         <div className="modal-overlay">
           <div className="modal settings-release-history-modal" onClick={(event) => event.stopPropagation()}>
             <div className="modal-header">

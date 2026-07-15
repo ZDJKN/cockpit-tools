@@ -7,6 +7,7 @@ import type { Page } from '../types/navigation';
 import type { Announcement, AnnouncementAction } from '../types/announcement';
 import { useAnnouncementStore } from '../stores/useAnnouncementStore';
 import { useEscClose } from '../hooks/useEscClose';
+import { applicationUpdatePolicy } from '../config/applicationUpdatePolicy';
 import './AnnouncementCenter.css';
 
 interface AnnouncementCenterProps {
@@ -53,6 +54,12 @@ function isSafeUrl(url: string): boolean {
 
 function sanitizeTypeClass(type: string): string {
   return type.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
+function isDisabledApplicationUpdateAnnouncement(announcement: Announcement): boolean {
+  return !applicationUpdatePolicy.allowManualChecks
+    && announcement.action?.type === 'command'
+    && announcement.action.target === 'update.check';
 }
 
 function formatTimeAgo(
@@ -183,6 +190,10 @@ function AnnouncementSurface({
     if (!popupAnnouncement) {
       return;
     }
+    if (isDisabledApplicationUpdateAnnouncement(popupAnnouncement)) {
+      setHandledPopupId(popupAnnouncement.id);
+      return;
+    }
     if (detailAnnouncement) {
       return;
     }
@@ -225,9 +236,9 @@ function AnnouncementSurface({
 
   const sortedAnnouncements = useMemo(
     () =>
-      [...announcementState.announcements].sort(
-        (a, b) => parseAnnouncementTime(b.createdAt) - parseAnnouncementTime(a.createdAt),
-      ),
+      announcementState.announcements
+        .filter((announcement) => !isDisabledApplicationUpdateAnnouncement(announcement))
+        .sort((a, b) => parseAnnouncementTime(b.createdAt) - parseAnnouncementTime(a.createdAt)),
     [announcementState.announcements],
   );
 
@@ -507,6 +518,10 @@ function AnnouncementSurface({
 }
 
 export function AnnouncementCenter(props: AnnouncementCenterProps) {
+  if (!applicationUpdatePolicy.allowUpstreamAnnouncements) {
+    return null;
+  }
+
   return (
     <AnnouncementSurface
       {...props}
@@ -518,6 +533,10 @@ export function AnnouncementCenter(props: AnnouncementCenterProps) {
 }
 
 export function AnnouncementHost({ onNavigate }: Pick<AnnouncementCenterProps, 'onNavigate'>) {
+  if (!applicationUpdatePolicy.allowUpstreamAnnouncements) {
+    return null;
+  }
+
   return (
     <AnnouncementSurface
       onNavigate={onNavigate}
