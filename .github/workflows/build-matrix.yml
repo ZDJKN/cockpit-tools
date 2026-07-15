@@ -124,8 +124,8 @@ jobs:
           restore-keys: |
             tauri-deps-${{ matrix.platform }}-
 
-      - name: Build app (pull request)
-        if: github.event_name == 'pull_request'
+      - name: Build app (unsigned validation)
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -133,8 +133,8 @@ jobs:
           set -euo pipefail
           npx tauri build --ci --config src-tauri/tauri.ci.conf.json ${{ matrix.args }} 2>&1 | tee "build-${{ matrix.label }}.log"
 
-      - name: Print build logs on failure (PR)
-        if: failure() && github.event_name == 'pull_request'
+      - name: Print build logs on failure (unsigned validation)
+        if: failure() && (github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch')
         shell: bash
         run: |
           echo "=== BUILD LOG (PR) ==="
@@ -145,7 +145,7 @@ jobs:
           fi
 
       - name: Build app (signed)
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'push'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -156,7 +156,7 @@ jobs:
           npx tauri build --ci ${{ matrix.args }} 2>&1 | tee "build-${{ matrix.label }}.log"
 
       - name: Print build logs on failure (Signed)
-        if: failure() && github.event_name != 'pull_request'
+        if: failure() && github.event_name == 'push'
         shell: bash
         run: |
           echo "=== BUILD LOG (SIGNED) ==="
