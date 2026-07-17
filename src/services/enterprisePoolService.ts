@@ -15,7 +15,18 @@ const FALLBACK_ENTERPRISE_POOL_URL = 'http://127.0.0.1:4174';
 
 export function normalizeEnterprisePoolBaseUrl(value?: string | null): string {
   const normalized = value?.trim().replace(/\/+$/, '');
-  return normalized || FALLBACK_ENTERPRISE_POOL_URL;
+  const selected = normalized || FALLBACK_ENTERPRISE_POOL_URL;
+  let parsed: URL;
+  try {
+    parsed = new URL(selected);
+  } catch {
+    throw new Error('ENTERPRISE_POOL_URL_INVALID');
+  }
+  const loopback = ['127.0.0.1', 'localhost', '[::1]'].includes(parsed.hostname);
+  if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && loopback)) {
+    throw new Error('ENTERPRISE_POOL_HTTPS_REQUIRED');
+  }
+  return selected;
 }
 
 export class EnterprisePoolApiError extends Error {
@@ -44,6 +55,8 @@ export interface EnterprisePoolClient {
   confirmSwitch(deviceId: string): Promise<EnterpriseLeaseResult>;
   cancelSwitch(deviceId: string): Promise<{ ok: true }>;
   releaseLease(deviceId: string): Promise<{ ok: true }>;
+  uploadCredential(accountId: string, credential: string): Promise<{ ok: true }>;
+  claimCredential(leaseId: string, deviceId: string): Promise<{ credential: string; accountId: string }>;
 }
 
 export function createEnterprisePoolClient(baseUrl?: string | null): EnterprisePoolClient {
@@ -115,5 +128,12 @@ export function createEnterprisePoolClient(baseUrl?: string | null): EnterpriseP
       post<{ ok: true }>(`/api/leases/${encodeURIComponent(deviceId)}/switch/cancel`),
     releaseLease: (deviceId) =>
       post<{ ok: true }>(`/api/leases/${encodeURIComponent(deviceId)}/release`),
+    uploadCredential: (accountId, credential) =>
+      post<{ ok: true }>(`/api/accounts/${encodeURIComponent(accountId)}/credential`, { credential }),
+    claimCredential: (leaseId, deviceId) =>
+      post<{ credential: string; accountId: string }>(
+        `/api/leases/${encodeURIComponent(leaseId)}/claim-credential`,
+        { deviceId },
+      ),
   };
 }

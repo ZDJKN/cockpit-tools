@@ -55,3 +55,25 @@
 .enterprise-pool-audit time { flex:0 0 auto; font-variant-numeric:tabular-nums; }
 .enterprise-pool-empty { margin:0; padding:16px; border:1px dashed var(--border); border-radius:9px; color:var(--text-tertiary); text-align:center; font-size:12px; }
 @media (max-width:960px) { .enterprise-pool-top-grid,.enterprise-pool-bottom-grid { grid-template-columns:1fr; } .enterprise-pool-account-grid { grid-template-columns:1fr; } }
+
+/* ── 凭据投影状态 ─────────────────────────────── */
+.enterprise-pool-projection { display:flex; align-items:center; gap:8px; padding:10px 12px; border-radius:10px; font-size:13px; }
+.enterprise-pool-projection-claiming,
+.enterprise-pool-projection-importing,
+.enterprise-pool-projection-switching { border:1px solid color-mix(in srgb,var(--primary) 28%,var(--border)); background:color-mix(in srgb,var(--primary) 8%,var(--bg-secondary)); color:var(--primary); }
+.enterprise-pool-projection-done { border:1px solid color-mix(in srgb,var(--success) 30%,transparent); background:color-mix(in srgb,var(--success) 10%,transparent); color:var(--success); }
+.enterprise-pool-projection-error { border:1px solid color-mix(in srgb,var(--danger) 30%,transparent); background:color-mix(in srgb,var(--danger) 10%,transparent); color:var(--danger); }
+.enterprise-pool-spin { animation:enterprise-pool-rotate 1s linear infinite; }
+@keyframes enterprise-pool-rotate { to { transform:rotate(360deg); } }
+
+/* ── 凭据管理 ─────────────────────────────────── */
+.enterprise-pool-credential-section .enterprise-pool-card-heading > span { display:flex; gap:8px; }
+.enterprise-pool-credential-message { padding:8px 10px; margin-bottom:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); color:var(--text-secondary); font-size:12px; }
+.enterprise-pool-credential-form { display:grid; gap:10px; margin-bottom:12px; }
+.enterprise-pool-credential-select { min-height:34px; padding:0 10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); color:var(--text-primary); font-size:13px; }
+.enterprise-pool-credential-textarea { width:100%; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--bg-secondary); color:var(--text-primary); font-size:12px; font-family:monospace; resize:vertical; }
+.enterprise-pool-credential-status { display:flex; flex-wrap:wrap; gap:8px; }
+.enterprise-pool-credential-account-status { display:flex; align-items:center; gap:8px; padding:6px 10px; border-radius:8px; background:var(--bg-secondary); font-size:12px; }
+.enterprise-pool-credential-badge { padding:2px 8px; border-radius:999px; font-size:11px; font-weight:700; }
+.enterprise-pool-credential-badge.uploaded { background:color-mix(in srgb,var(--success) 15%,transparent); color:var(--success); }
+.enterprise-pool-credential-badge.missing { background:color-mix(in srgb,var(--text-tertiary) 12%,transparent); color:var(--text-tertiary); }

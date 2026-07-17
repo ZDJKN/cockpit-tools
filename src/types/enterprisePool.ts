@@ -4,6 +4,8 @@ export interface EnterprisePoolAccount {
   id: string;
   hourlyRemaining: number;
   weeklyRemaining: number;
+  /** 是否有已上传的凭据 */
+  hasCredential?: boolean;
 }
 
 export interface EnterprisePoolDevice {
@@ -60,6 +62,7 @@ export interface EnterpriseIdentity {
   provider: EnterpriseAuthMode;
   subject: string;
   displayName: string;
+  credentialAdmin?: boolean;
 }
 
 export interface EnterpriseDesktopLoginInput {

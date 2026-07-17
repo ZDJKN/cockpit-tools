@@ -265,4 +265,40 @@ describe('enterprise pool store actions', () => {
 
     expect(useEnterprisePoolStore.getState().error).toBe('登录失败，请重试');
   });
+
+  it('propagates credential upload failures so the page cannot report false success', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => jsonResponse({ error: 'CREDENTIAL_ADMIN_REQUIRED' }, 403)),
+    );
+
+    await expect(
+      useEnterprisePoolStore.getState().uploadCredential('account-1', '{"token":"secret"}'),
+    ).rejects.toMatchObject({ code: 'CREDENTIAL_ADMIN_REQUIRED', status: 403 });
+    expect(useEnterprisePoolStore.getState()).toMatchObject({
+      busy: false,
+      error: '账号池请求失败：CREDENTIAL_ADMIN_REQUIRED',
+    });
+  });
+
+  it('does not request or claim a lease from plain browser mode', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    useEnterprisePoolStore.setState({
+      identity: {
+        provider: 'mock',
+        subject: 'user-1',
+        userId: 'user-1',
+        deviceId: 'windows-1',
+        displayName: '用户 1',
+      },
+    });
+
+    await useEnterprisePoolStore.getState().requestLease();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(useEnterprisePoolStore.getState()).toMatchObject({
+      credentialStatus: 'error',
+    });
+  });
 });

@@ -16,6 +16,15 @@ describe('enterprisePoolService', () => {
     expect(normalizeEnterprisePoolBaseUrl('')).toBe('http://127.0.0.1:4174');
   });
 
+  it('rejects cleartext non-loopback server URLs', () => {
+    expect(() => normalizeEnterprisePoolBaseUrl('http://pool.example.com')).toThrow(
+      'ENTERPRISE_POOL_HTTPS_REQUIRED',
+    );
+    expect(normalizeEnterprisePoolBaseUrl('http://localhost:4174')).toBe(
+      'http://localhost:4174',
+    );
+  });
+
   it('fetches the current pool snapshot', async () => {
     const snapshot = {
       accounts: [],
@@ -33,11 +42,11 @@ describe('enterprisePoolService', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const result = await createEnterprisePoolClient('http://pool.test/').getPool();
+    const result = await createEnterprisePoolClient('https://pool.test/').getPool();
 
     expect(result).toEqual(snapshot);
     expect(fetchMock).toHaveBeenCalledWith(
-      'http://pool.test/api/pool',
+      'https://pool.test/api/pool',
       expect.objectContaining({ credentials: 'include' }),
     );
   });
@@ -62,7 +71,7 @@ describe('enterprisePoolService', () => {
       return jsonResponse({ ok: true });
     });
     vi.stubGlobal('fetch', fetchMock);
-    const client = createEnterprisePoolClient('http://pool.test');
+    const client = createEnterprisePoolClient('https://pool.test');
 
     await client.getAuthMode();
     const login = await client.desktopMockLogin({
@@ -75,10 +84,10 @@ describe('enterprisePoolService', () => {
     await client.logout();
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'http://pool.test/api/auth/mode',
-      'http://pool.test/api/auth/desktop/mock/login',
-      'http://pool.test/api/auth/session',
-      'http://pool.test/api/auth/logout',
+      'https://pool.test/api/auth/mode',
+      'https://pool.test/api/auth/desktop/mock/login',
+      'https://pool.test/api/auth/session',
+      'https://pool.test/api/auth/logout',
     ]);
     expect(fetchMock.mock.calls[2]?.[1]).toEqual(
       expect.objectContaining({
@@ -93,14 +102,14 @@ describe('enterprisePoolService', () => {
       .fn()
       .mockImplementation(async () => jsonResponse({ status: 'pending', pollAfterMs: 1500 }));
     vi.stubGlobal('fetch', fetchMock);
-    const client = createEnterprisePoolClient('http://pool.test');
+    const client = createEnterprisePoolClient('https://pool.test');
 
     await client.startDesktopLogin('windows-1');
     await client.pollDesktopLogin('transaction-1', 'verifier-1');
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'http://pool.test/api/auth/desktop/start',
-      'http://pool.test/api/auth/desktop/poll',
+      'https://pool.test/api/auth/desktop/start',
+      'https://pool.test/api/auth/desktop/poll',
     ]);
   });
 
@@ -112,7 +121,7 @@ describe('enterprisePoolService', () => {
       }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    const client = createEnterprisePoolClient('http://pool.test');
+    const client = createEnterprisePoolClient('https://pool.test');
 
     await client.mockLogin({ userId: 'ding-1', deviceId: 'windows-1', displayName: '用户 1' });
     await client.requestLease('windows-1');
@@ -122,12 +131,12 @@ describe('enterprisePoolService', () => {
     await client.releaseLease('windows-1');
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'http://pool.test/api/mock/login',
-      'http://pool.test/api/leases/request',
-      'http://pool.test/api/accounts/account-1/quota',
-      'http://pool.test/api/leases/windows-1/switch/confirm',
-      'http://pool.test/api/leases/windows-1/switch/cancel',
-      'http://pool.test/api/leases/windows-1/release',
+      'https://pool.test/api/mock/login',
+      'https://pool.test/api/leases/request',
+      'https://pool.test/api/accounts/account-1/quota',
+      'https://pool.test/api/leases/windows-1/switch/confirm',
+      'https://pool.test/api/leases/windows-1/switch/cancel',
+      'https://pool.test/api/leases/windows-1/release',
     ]);
   });
 

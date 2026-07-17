@@ -4,6 +4,8 @@ import {
   EnterprisePoolApiError,
   createEnterprisePoolClient,
 } from '../services/enterprisePoolService';
+import { importCodexFromJson } from '../services/codexService';
+import { useCodexAccountStore } from './useCodexAccountStore';
 import type {
   EnterpriseAuthMode,
   EnterpriseIdentity,
@@ -92,6 +94,35 @@ function formatPoolError(error: unknown): string {
   return '无法连接企业账号池';
 }
 
+/** 检测是否在 Tauri 上下文中运行 */
+function isTauriContext(): boolean {
+  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+}
+
+export function canProjectEnterpriseCredential(): boolean {
+  return isTauriContext();
+}
+
+/** 格式化凭据投影失败的错误 */
+function formatProjectionError(error: unknown): string {
+  if (!isTauriContext()) {
+    return '凭据投影需要 Tauri 运行时（构建版或 `npm run tauri dev`），当前浏览器 dev 模式不支持。凭据已从服务端领取，但未写入本地。';
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('invoke') || message.includes('TAURI') || message.includes('__TAURI__')) {
+    return `凭据投影需要 Tauri 运行时：${message}`;
+  }
+  return `凭据投影失败：${message}`;
+}
+
+export type EnterpriseCredentialProjectionStatus =
+  | 'idle'
+  | 'claiming'
+  | 'importing'
+  | 'switching'
+  | 'done'
+  | 'error';
+
 interface EnterprisePoolStore {
   deviceId: string;
   authMode: EnterpriseAuthMode | null;
@@ -102,6 +133,8 @@ interface EnterprisePoolStore {
   connected: boolean;
   busy: boolean;
   error: string | null;
+  credentialStatus: EnterpriseCredentialProjectionStatus;
+  credentialMessage: string | null;
   refresh(): Promise<void>;
   login(input: EnterprisePoolLoginInput): Promise<void>;
   loginMock(input: { userId: string; displayName: string }): Promise<void>;
@@ -115,6 +148,8 @@ interface EnterprisePoolStore {
   cancelSwitch(): Promise<void>;
   logout(): Promise<void>;
   clearIdentity(): Promise<void>;
+  uploadCredential(accountId: string, credential: string): Promise<void>;
+  claimCredential(leaseId: string): Promise<string>;
 }
 
 function signedIdentity(identity: EnterpriseIdentity, deviceId: string): EnterpriseSignedInIdentity {
@@ -131,6 +166,8 @@ export const useEnterprisePoolStore = create<EnterprisePoolStore>((set, get) => 
   connected: false,
   busy: false,
   error: null,
+  credentialStatus: 'idle',
+  credentialMessage: null,
 
   refresh: async () => {
     try {
@@ -222,10 +259,46 @@ export const useEnterprisePoolStore = create<EnterprisePoolStore>((set, get) => 
   requestLease: async () => {
     const identity = get().identity;
     if (!identity) return set({ error: '请先完成企业身份登录' });
-    set({ busy: true, error: null });
+    if (!isTauriContext()) {
+      return set({
+        credentialStatus: 'error',
+        credentialMessage: '当前是浏览器预览模式。请使用已安装的桌面版领取并写入凭据。',
+      });
+    }
+    set({ busy: true, error: null, credentialStatus: 'idle', credentialMessage: null });
     try {
-      await client.requestLease(identity.deviceId);
+      const result = await client.requestLease(identity.deviceId);
       await get().refresh();
+
+      // 如果成功领取租约，自动执行凭据投影
+      if (result.status === 'leased') {
+        set({ credentialStatus: 'claiming', credentialMessage: '正在领取账号凭据...' });
+        try {
+          const { credential } = await client.claimCredential(result.leaseId, identity.deviceId);
+          await get().refresh();
+
+          set({ credentialStatus: 'importing', credentialMessage: '正在导入凭据到本地...' });
+          const accounts = await importCodexFromJson(credential);
+
+          if (accounts.length === 1) {
+            set({ credentialStatus: 'switching', credentialMessage: '正在切换账号...' });
+            await useCodexAccountStore.getState().switchAccount(accounts[0].id);
+            set({ credentialStatus: 'done', credentialMessage: `凭据已下发到本地，已切换到 ${accounts[0].email ?? accounts[0].id}` });
+            // 3 秒后自动清除 done 状态
+            setTimeout(() => {
+              const current = get().credentialStatus;
+              if (current === 'done') set({ credentialStatus: 'idle', credentialMessage: null });
+            }, 3_000);
+          } else {
+            throw new Error(`凭据应只包含 1 个 Codex 账号，实际识别到 ${accounts.length} 个`);
+          }
+        } catch (projectError) {
+          set({
+            credentialStatus: 'error',
+            credentialMessage: formatProjectionError(projectError),
+          });
+        }
+      }
     } catch (error) {
       set({ error: formatPoolError(error) });
     } finally {
@@ -262,10 +335,44 @@ export const useEnterprisePoolStore = create<EnterprisePoolStore>((set, get) => 
   confirmSwitch: async () => {
     const identity = get().identity;
     if (!identity) return;
-    set({ busy: true, error: null });
+    if (!isTauriContext()) {
+      return set({
+        credentialStatus: 'error',
+        credentialMessage: '当前是浏览器预览模式。请使用已安装的桌面版执行换号。',
+      });
+    }
+    set({ busy: true, error: null, credentialStatus: 'idle', credentialMessage: null });
     try {
-      await client.confirmSwitch(identity.deviceId);
+      const result = await client.confirmSwitch(identity.deviceId);
       await get().refresh();
+
+      // 切换确认后获得新租约，自动执行凭据投影
+      if (result.status === 'leased') {
+        set({ credentialStatus: 'claiming', credentialMessage: '正在领取新账号凭据...' });
+        try {
+          const { credential } = await client.claimCredential(result.leaseId, identity.deviceId);
+          await get().refresh();
+
+          set({ credentialStatus: 'importing', credentialMessage: '正在导入凭据...' });
+          const accounts = await importCodexFromJson(credential);
+
+          if (accounts.length === 1) {
+            set({ credentialStatus: 'switching', credentialMessage: '正在切换账号...' });
+            await useCodexAccountStore.getState().switchAccount(accounts[0].id);
+            set({ credentialStatus: 'done', credentialMessage: `已切换到 ${accounts[0].email ?? accounts[0].id}` });
+            setTimeout(() => {
+              if (get().credentialStatus === 'done') set({ credentialStatus: 'idle', credentialMessage: null });
+            }, 3_000);
+          } else {
+            throw new Error(`凭据应只包含 1 个 Codex 账号，实际识别到 ${accounts.length} 个`);
+          }
+        } catch (projectError) {
+          set({
+            credentialStatus: 'error',
+            credentialMessage: formatProjectionError(projectError),
+          });
+        }
+      }
     } catch (error) {
       set({ error: formatPoolError(error) });
     } finally {
@@ -305,4 +412,33 @@ export const useEnterprisePoolStore = create<EnterprisePoolStore>((set, get) => 
   },
 
   clearIdentity: async () => await get().logout(),
+
+  uploadCredential: async (accountId, credential) => {
+    set({ busy: true, error: null });
+    try {
+      await client.uploadCredential(accountId, credential);
+      await get().refresh();
+    } catch (error) {
+      set({ error: formatPoolError(error) });
+      throw error;
+    } finally {
+      set({ busy: false });
+    }
+  },
+
+  claimCredential: async (leaseId) => {
+    const identity = get().identity;
+    if (!identity) throw new Error('请先完成企业身份登录');
+    set({ busy: true, error: null });
+    try {
+      const result = await client.claimCredential(leaseId, identity.deviceId);
+      await get().refresh();
+      return result.credential;
+    } catch (error) {
+      set({ error: formatPoolError(error) });
+      throw error;
+    } finally {
+      set({ busy: false });
+    }
+  },
 }));

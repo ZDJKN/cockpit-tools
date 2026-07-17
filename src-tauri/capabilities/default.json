@@ -21,6 +21,14 @@
     },
     "dialog:default",
     "fs:default",
+    {
+      "identifier": "fs:allow-read-text-file",
+      "allow": [
+        {
+          "path": "$HOME/.codex/auth.json"
+        }
+      ]
+    },
     "notification:default",
     "process:default"
   ]

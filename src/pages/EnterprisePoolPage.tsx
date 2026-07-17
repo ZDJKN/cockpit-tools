@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Building2, CircleAlert, Clock3, LogIn, LogOut, RefreshCw, RotateCcw, Server, UserRound } from 'lucide-react';
+import { Building2, CircleAlert, Clock3, FileText, LogIn, LogOut, RefreshCw, RotateCcw, Server, Upload, UserRound } from 'lucide-react';
 import { openUrl } from '@tauri-apps/plugin-opener';
 
 import {
+  canProjectEnterpriseCredential,
   deriveEnterpriseDeviceState,
   useEnterprisePoolStore,
 } from '../stores/useEnterprisePoolStore';
@@ -23,6 +24,7 @@ function formatTime(timestamp: number): string {
 }
 
 export function EnterprisePoolPage() {
+  const projectionAvailable = canProjectEnterpriseCredential();
   const identity = useEnterprisePoolStore((state) => state.identity);
   const deviceId = useEnterprisePoolStore((state) => state.deviceId);
   const authMode = useEnterprisePoolStore((state) => state.authMode);
@@ -47,6 +49,11 @@ export function EnterprisePoolPage() {
   const [userId, setUserId] = useState(identity?.userId ?? 'ding-user-1');
   const [displayName, setDisplayName] = useState(identity?.displayName ?? '测试用户 1');
   const [releaseConfirmationVisible, setReleaseConfirmationVisible] = useState(false);
+  const [credentialMode, setCredentialMode] = useState<'hidden' | 'manual' | 'auto'>('hidden');
+  const [credentialJson, setCredentialJson] = useState('');
+  const [credentialTargetAccount, setCredentialTargetAccount] = useState('');
+  const [credentialBusy, setCredentialBusy] = useState(false);
+  const [credentialMessage, setCredentialMessage] = useState<string | null>(null);
 
   useEffect(() => {
     void refresh();
@@ -95,6 +102,47 @@ export function EnterprisePoolPage() {
     setReleaseConfirmationVisible(false);
   };
 
+  const handleUploadCredential = async () => {
+    if (!credentialJson.trim() || !credentialTargetAccount) return;
+    setCredentialBusy(true);
+    setCredentialMessage(null);
+    try {
+      await uploadCredential(credentialTargetAccount, credentialJson.trim());
+      setCredentialMessage(`凭据已上传到 ${credentialTargetAccount}`);
+      setCredentialJson('');
+    } catch (e) {
+      setCredentialMessage(`上传失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCredentialBusy(false);
+    }
+  };
+
+  const handleAutoFetchCredential = async () => {
+    if (!credentialTargetAccount) {
+      setCredentialMessage('请先选择目标账号');
+      return;
+    }
+    setCredentialBusy(true);
+    setCredentialMessage(null);
+    try {
+      const { homeDir, join } = await import('@tauri-apps/api/path');
+      const { readTextFile } = await import('@tauri-apps/plugin-fs');
+      const home = await homeDir();
+      const content = await readTextFile(await join(home, '.codex', 'auth.json'));
+      JSON.parse(content); // 验证是合法 JSON
+      await uploadCredential(credentialTargetAccount, content);
+      setCredentialMessage(`已从 ~/.codex/auth.json 安全上传到 ${credentialTargetAccount}`);
+    } catch (e) {
+      setCredentialMessage(`自动抓取失败：${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setCredentialBusy(false);
+    }
+  };
+
+  const uploadCredential = useEnterprisePoolStore((state) => state.uploadCredential);
+  const projectionStatus = useEnterprisePoolStore((state) => state.credentialStatus);
+  const projectionMessage = useEnterprisePoolStore((state) => state.credentialMessage);
+
   return (
     <div className="enterprise-pool-page">
       <header className="enterprise-pool-hero">
@@ -112,6 +160,23 @@ export function EnterprisePoolPage() {
       </header>
 
       {error ? <div className="enterprise-pool-error" role="alert"><CircleAlert size={17} />{error}</div> : null}
+
+      {!projectionAvailable ? (
+        <div className="enterprise-pool-error" role="status">
+          <CircleAlert size={17} />当前为浏览器预览，只能查看状态；领取账号和换号请在桌面版中操作。
+        </div>
+      ) : null}
+
+      {projectionStatus !== 'idle' ? (
+        <div className={`enterprise-pool-projection enterprise-pool-projection-${projectionStatus}`} role="status" aria-live="polite">
+          {projectionStatus === 'claiming' ? <RefreshCw size={17} className="enterprise-pool-spin" /> : null}
+          {projectionStatus === 'importing' ? <RefreshCw size={17} className="enterprise-pool-spin" /> : null}
+          {projectionStatus === 'switching' ? <RefreshCw size={17} className="enterprise-pool-spin" /> : null}
+          {projectionStatus === 'done' ? <span>✓</span> : null}
+          {projectionStatus === 'error' ? <CircleAlert size={17} /> : null}
+          {projectionMessage}
+        </div>
+      ) : null}
 
       <section className="enterprise-pool-grid enterprise-pool-top-grid">
         <article className="enterprise-pool-card">
@@ -167,13 +232,13 @@ export function EnterprisePoolPage() {
             ) : null}
           </div>
           <div className="enterprise-pool-actions">
-            {deviceState.kind === 'ready' ? <button className="btn btn-primary" type="button" onClick={() => void requestLease()} disabled={busy}>领取可用账号</button> : null}
+            {deviceState.kind === 'ready' ? <button className="btn btn-primary" type="button" onClick={() => void requestLease()} disabled={busy || !projectionAvailable}>领取可用账号</button> : null}
             {deviceState.kind === 'leased' && !releaseConfirmationVisible ? <button className="btn btn-danger" type="button" onClick={() => setReleaseConfirmationVisible(true)} disabled={busy}>释放租约</button> : null}
             {deviceState.kind === 'leased' && releaseConfirmationVisible ? (
               <><span className="enterprise-pool-release-warning">确认释放？下一台设备可能立即补位。</span><button className="btn btn-danger" type="button" onClick={() => void handleRelease()} disabled={busy}>确认释放</button><button className="btn btn-secondary" type="button" onClick={() => setReleaseConfirmationVisible(false)} disabled={busy}>取消</button></>
             ) : null}
             {deviceState.kind === 'switch_pending' ? (
-              <><button className="btn btn-primary" type="button" onClick={() => void confirmSwitch()} disabled={busy}><RotateCcw size={15} />确认换号</button><button className="btn btn-secondary" type="button" onClick={() => void cancelSwitch()} disabled={busy}>暂不切换</button></>
+              <><button className="btn btn-primary" type="button" onClick={() => void confirmSwitch()} disabled={busy || !projectionAvailable}><RotateCcw size={15} />确认换号</button><button className="btn btn-secondary" type="button" onClick={() => void cancelSwitch()} disabled={busy}>暂不切换</button></>
             ) : null}
             <button className="btn btn-secondary" type="button" onClick={() => void refresh()} disabled={busy}><RefreshCw size={15} />刷新</button>
           </div>
@@ -199,6 +264,71 @@ export function EnterprisePoolPage() {
           })}
         </div>
       </section>
+
+      {identity?.credentialAdmin ? (
+        <section className="enterprise-pool-card enterprise-pool-credential-section">
+          <div className="enterprise-pool-card-heading">
+            <FileText size={18} /><h2>凭据管理</h2>
+            <span>
+              <button className="btn btn-secondary" type="button" onClick={() => setCredentialMode(credentialMode === 'manual' ? 'hidden' : 'manual')} disabled={credentialBusy}>
+                手动粘贴
+              </button>
+              <button className="btn btn-secondary" type="button" onClick={() => void handleAutoFetchCredential()} disabled={credentialBusy || busy || !credentialTargetAccount}>
+                从本地抓取
+              </button>
+            </span>
+          </div>
+
+          {credentialMessage ? (
+            <div className="enterprise-pool-credential-message">{credentialMessage}</div>
+          ) : null}
+
+          {credentialMode === 'manual' ? (
+            <div className="enterprise-pool-credential-form">
+              <label htmlFor="credential-target-account">目标账号</label>
+              <select
+                id="credential-target-account"
+                value={credentialTargetAccount}
+                onChange={(e) => setCredentialTargetAccount(e.target.value)}
+                className="enterprise-pool-credential-select"
+              >
+                <option value="">-- 选择目标账号 --</option>
+                {(snapshot?.accounts ?? []).map((a) => (
+                  <option key={a.id} value={a.id}>{a.id}</option>
+                ))}
+              </select>
+              <label htmlFor="credential-json">Codex 凭据 JSON</label>
+              <textarea
+                id="credential-json"
+                className="enterprise-pool-credential-textarea"
+                value={credentialJson}
+                onChange={(e) => setCredentialJson(e.target.value)}
+                placeholder="粘贴 auth.json 内容、session JSON、accessToken..."
+                rows={6}
+              />
+              <button
+                className="btn btn-primary"
+                type="button"
+                onClick={() => void handleUploadCredential()}
+                disabled={credentialBusy || busy || !credentialJson.trim() || !credentialTargetAccount}
+              >
+                <Upload size={15} />上传凭据
+              </button>
+            </div>
+          ) : null}
+
+          <div className="enterprise-pool-credential-status">
+            {(snapshot?.accounts ?? []).map((a) => (
+              <div key={a.id} className="enterprise-pool-credential-account-status">
+                <span>{a.id}</span>
+                <span className={`enterprise-pool-credential-badge ${a.hasCredential ? 'uploaded' : 'missing'}`}>
+                  {a.hasCredential ? '已上传' : '未上传'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section className="enterprise-pool-grid enterprise-pool-bottom-grid">
         <article className="enterprise-pool-card">
